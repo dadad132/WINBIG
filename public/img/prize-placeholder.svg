@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c2052"/>
+      <stop offset="1" stop-color="#0d0f2b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".55" r=".5">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff5c9d"/>
+      <stop offset="1" stop-color="#c41d63"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff7fb3"/>
+      <stop offset="1" stop-color="#e0306f"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset="1" stop-color="#ff9f1c"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg)"/>
+  <circle cx="400" cy="330" r="290" fill="url(#glow)"/>
+  <rect x="270" y="300" width="260" height="190" rx="14" fill="url(#box)"/>
+  <rect x="250" y="250" width="300" height="64" rx="14" fill="url(#lid)"/>
+  <rect x="382" y="250" width="36" height="240" fill="url(#gold)"/>
+  <path d="M400 250 C350 175 285 200 318 246 C334 264 380 256 400 250Z" fill="url(#gold)"/>
+  <path d="M400 250 C450 175 515 200 482 246 C466 264 420 256 400 250Z" fill="url(#gold)"/>
+  <path d="M190 150 l10 26 26 10 -26 10 -10 26 -10 -26 -26 -10 26 -10z" fill="#ffc940"/>
+  <path d="M615 120 l7 18 18 7 -18 7 -7 18 -7 -18 -18 -7 18 -7z" fill="#ffffff" opacity=".85"/>
+  <path d="M640 390 l8 20 20 8 -20 8 -8 20 -8 -20 -20 -8 20 -8z" fill="#ffc940" opacity=".9"/>
+  <circle cx="160" cy="420" r="6" fill="#2ee59d"/>
+  <circle cx="665" cy="255" r="5" fill="#ff3d8b"/>
+  <circle cx="245" cy="105" r="4" fill="#ffffff"/>
+  <text x="400" y="555" text-anchor="middle" font-family="Outfit, system-ui, sans-serif" font-size="24" font-weight="600" fill="#a5aad6">Upload your prize photo in the admin panel</text>
+</svg>

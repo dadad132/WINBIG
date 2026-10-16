@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin login | WinBig</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="login-page">
+  <!-- Normal login -->
+  <form id="login" class="login-card" hidden>
+    <div class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span><small>Admin</small></div>
+    <label>Password<input type="password" id="password" autocomplete="current-password" required></label>
+    <p class="form-error" id="login-error" role="alert"></p>
+    <button class="btn primary">Log in</button>
+  </form>
+
+  <!-- First visit: create the admin password -->
+  <form id="setup" class="login-card" hidden>
+    <div class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span><small>Admin</small></div>
+    <h1>Welcome! Let's set up your admin password</h1>
+    <p class="hint">This is the password you'll use to log in to the WinBig admin panel. Use at least 8 characters
+      and don't reuse a password from another website.</p>
+    <label>New password<input type="password" id="new-password" autocomplete="new-password" minlength="8" required></label>
+    <label>Type the password again<input type="password" id="confirm-password" autocomplete="new-password" required></label>
+    <label id="code-field" hidden>Setup code <span class="hint">(printed in the server log as "Admin setup code")</span>
+      <input id="setup-code" autocomplete="off"></label>
+    <p class="form-error" id="setup-error" role="alert"></p>
+    <button class="btn primary">Create password &amp; log in</button>
+  </form>
+
+  <script src="/js/common.js"></script>
+  <script>
+    (async function () {
+      const $ = (id) => document.getElementById(id);
+      const status = await WB.api('/api/admin/setup').catch(() => ({ needsSetup: false }));
+      const form = status.needsSetup ? $('setup') : $('login');
+      form.hidden = false;
+      if (status.needsCode) {
+        $('code-field').hidden = false;
+        $('setup-code').required = true;
+      }
+      form.querySelector('input').focus();
+
+      async function send(button, errorEl, url, body) {
+        button.disabled = true;
+        errorEl.textContent = '';
+        try {
+          await WB.api(url, { method: 'POST', body });
+          location.href = '/admin/';
+        } catch (err) {
+          errorEl.textContent = err.message;
+          button.disabled = false;
+        }
+      }
+
+      $('login').addEventListener('submit', (e) => {
+        e.preventDefault();
+        send(e.submitter, $('login-error'), '/api/admin/login', { password: $('password').value });
+      });
+
+      $('setup').addEventListener('submit', (e) => {
+        e.preventDefault();
+        if ($('new-password').value !== $('confirm-password').value) {
+          $('setup-error').textContent = "The two passwords don't match.";
+          return;
+        }
+        send(e.submitter, $('setup-error'), '/api/admin/setup', { password: $('new-password').value, code: $('setup-code').value });
+      });
+    })();
+  </script>
+</body>
+</html>

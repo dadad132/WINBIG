@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Demo payment | WinBig</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="/" class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span></a>
+    </div>
+  </header>
+  <main class="result-page">
+    <div class="panel" id="panel">
+      <span class="demo-tag">DEMO PAYMENT</span>
+      <h1>Pretend checkout</h1>
+      <p>This page stands in for Yoco's payment page while no Yoco key is configured. <b>No money is taken.</b></p>
+      <div class="summary"><span id="what">Loading…</span><b id="amount"></b></div>
+      <div class="actions-row">
+        <button class="btn btn-lg" id="pay" disabled>Pay (demo)</button>
+        <a class="btn btn-ghost" id="cancel" href="/">Cancel</a>
+      </div>
+      <p class="form-error" id="error"></p>
+    </div>
+  </main>
+  <script src="/js/common.js"></script>
+  <script>
+    (async function () {
+      const params = new URLSearchParams(location.search);
+      const order = params.get('order');
+      const t = params.get('t');
+      const $ = (id) => document.getElementById(id);
+      $('cancel').href = `/success?order=${encodeURIComponent(order)}&t=${encodeURIComponent(t)}&cancelled=1`;
+      try {
+        const o = await WB.api(`/api/orders/${encodeURIComponent(order)}?t=${encodeURIComponent(t)}`);
+        $('what').textContent = `${o.base_entries} ${o.base_entries === 1 ? 'entry' : 'entries'}: ${o.competition.title}`;
+        $('amount').textContent = WB.money(o.amount_cents);
+        $('pay').textContent = `Pay ${WB.money(o.amount_cents)} (demo)`;
+        $('pay').disabled = o.status !== 'pending';
+      } catch (err) {
+        $('error').textContent = err.message;
+      }
+      $('pay').onclick = async () => {
+        $('pay').disabled = true;
+        try {
+          const { redirectUrl } = await WB.api('/api/demo/pay', { method: 'POST', body: { order, t } });
+          location.href = redirectUrl;
+        } catch (err) {
+          $('error').textContent = err.message;
+          $('pay').disabled = false;
+        }
+      };
+    })();
+  </script>
+</body>
+</html>

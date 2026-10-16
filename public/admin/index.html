@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin | WinBig</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/wheel.css">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="admin">
+  <aside class="sidebar">
+    <a class="logo" href="#dashboard"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span></a>
+    <nav id="tabs">
+      <a href="#dashboard">Dashboard</a>
+      <a href="#prizes">Prizes</a>
+      <a href="#packages">Ticket packages</a>
+      <a href="#wheel">Spin wheel</a>
+      <a href="#customers">Customers</a>
+      <a href="#orders">Orders</a>
+      <a href="#draw">Draw winner</a>
+      <a href="#payments">Payments</a>
+    </nav>
+    <div class="sidebar-foot">
+      <a href="/" target="_blank">View website ↗</a>
+      <button id="change-password" type="button">Change password</button>
+      <button id="logout" type="button">Log out</button>
+    </div>
+  </aside>
+  <main id="view" class="main"></main>
+  <dialog id="modal"></dialog>
+  <div id="toast" role="status"></div>
+  <script src="/js/common.js"></script>
+  <script src="/js/wheel.js"></script>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

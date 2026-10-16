@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>My tickets | WinBig</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="/" class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span></a>
+      <div id="auth-nav" class="auth-nav"></div>
+    </div>
+  </header>
+  <main class="wrap account" hidden id="account">
+    <div class="account-head">
+      <div>
+        <p class="eyebrow">My account</p>
+        <h1 id="hello">Hi</h1>
+      </div>
+      <div class="customer-id"><span>Your customer ID</span><b id="customer-no"></b></div>
+    </div>
+
+    <h2>My tickets</h2>
+    <div id="orders" class="orders-list"><p class="empty">Loading your tickets…</p></div>
+
+    <div class="settings-grid" id="details">
+      <form id="details-form" novalidate>
+        <h2>My details</h2>
+        <div class="field-row">
+          <label class="field"><span>First name</span><input id="d-first" autocomplete="given-name" required maxlength="50"></label>
+          <label class="field"><span>Surname</span><input id="d-last" autocomplete="family-name" required maxlength="50"></label>
+        </div>
+        <label class="field"><span>Email address</span><input id="d-email" type="email" autocomplete="email" required></label>
+        <label class="field"><span>Cellphone number</span><input id="d-phone" type="tel" autocomplete="tel" required></label>
+        <p class="form-error" id="details-error"></p>
+        <p class="form-ok" id="details-ok"></p>
+        <button class="btn" type="submit">Save details</button>
+      </form>
+      <form id="password-form" novalidate>
+        <h2>Change password</h2>
+        <label class="field"><span>Current password</span><input id="p-current" type="password" autocomplete="current-password" required></label>
+        <label class="field"><span>New password</span><input id="p-new" type="password" autocomplete="new-password" required minlength="8">
+          <small>At least 8 characters.</small></label>
+        <p class="form-error" id="password-error"></p>
+        <p class="form-ok" id="password-ok"></p>
+        <button class="btn" type="submit">Change password</button>
+      </form>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap footer-inner"><span>© WinBig. Participants must be 18 or older.</span><a href="/terms">Terms &amp; conditions</a></div>
+  </footer>
+  <script src="/js/common.js"></script>
+  <script src="/js/account.js"></script>
+</body>
+</html>

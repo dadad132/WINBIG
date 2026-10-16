@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WinBig | Win big prizes</title>
+  <meta name="description" content="Buy tickets, spin the wheel for bonus entries and stand a chance to win big.">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="mode-ribbon" class="mode-ribbon" hidden></div>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="/" class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span></a>
+      <nav>
+        <a href="#prize">The prize</a>
+        <a href="#how">How it works</a>
+        <div id="auth-nav" class="auth-nav"></div>
+      </nav>
+    </div>
+  </header>
+  <div id="winner-banner" class="winner-banner" hidden></div>
+
+  <main>
+    <section id="prize" class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow live" id="phase-label">Live now</p>
+          <h1 id="prize-title">Loading the prize…</h1>
+          <div class="value-pill" id="value-pill" hidden>Worth <strong id="prize-value"></strong></div>
+          <p class="lead" id="prize-desc"></p>
+          <div id="countdown" class="countdown" hidden></div>
+          <p id="draw-date" class="draw-date"></p>
+          <a href="#tickets" class="btn btn-lg" id="hero-cta">Get your tickets</a>
+        </div>
+        <div class="hero-media">
+          <div class="prize-frame"><img id="prize-img" src="/img/prize-placeholder.svg" alt=""></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="closed" class="wrap closed" hidden>
+      <p class="eyebrow">Stay tuned</p>
+      <h1>The next big prize is coming soon</h1>
+      <p>There's no draw open right now. Check back shortly!</p>
+    </section>
+
+    <section id="tickets" class="section">
+      <div class="wrap">
+        <h2 class="section-title">Choose your tickets</h2>
+        <p class="section-sub">More entries means more chances to win. Every purchase also gets a free spin of the wheel
+          for up to <b id="max-bonus">4</b> bonus entries.</p>
+        <div id="packages" class="packages"></div>
+      </div>
+    </section>
+
+    <section id="how" class="section">
+      <div class="wrap">
+        <h2 class="section-title">How it works</h2>
+        <p class="section-sub">Four simple steps between you and the prize.</p>
+        <ol class="steps">
+          <li><div class="num">1</div><h3>Pick your tickets</h3><p>Choose a package. Bigger packages give you more entries for your money.</p></li>
+          <li><div class="num">2</div><h3>Pay securely</h3><p>Pay by card or instant EFT on Yoco's secure checkout page.</p></li>
+          <li><div class="num">3</div><h3>Spin the wheel</h3><p>Spin our prize wheel to win extra entries, free.</p></li>
+          <li><div class="num">4</div><h3>Win big</h3><p>On draw day a winning ticket is picked at random. We'll contact the winner.</p></li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>© <span id="year"></span> WinBig. Participants must be 18 or older. Please play responsibly.</span>
+      <a href="/terms">Terms &amp; conditions</a>
+    </div>
+  </footer>
+
+  <dialog id="checkout">
+    <form id="checkout-form" class="dialog-body" novalidate>
+      <div class="dialog-head">
+        <h2>Confirm your tickets</h2>
+        <button type="button" class="icon-btn" id="close-checkout" aria-label="Close">×</button>
+      </div>
+      <div class="summary"><span id="sum-entries"></span><b id="sum-price"></b></div>
+      <div class="buyer">
+        <span>Entering as</span>
+        <b id="buyer-name"></b>
+        <small id="buyer-contact"></small>
+        <a href="/account#details">Not right? Update your details</a>
+      </div>
+      <label class="check"><input id="f-agree" type="checkbox">
+        <span>I accept the <a href="/terms" target="_blank">terms &amp; conditions</a> for this draw.</span></label>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <button class="btn btn-lg" id="pay-btn" type="submit">Continue to payment</button>
+      <p class="secure-note">🔒 You'll be taken to Yoco's secure payment page.</p>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/home.js"></script>
+</body>
+</html>
