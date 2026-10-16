@@ -55,12 +55,49 @@ everything without being charged.
 
 Yoco can't notify a site running only on your computer, so test real Yoco payments once the site is online.
 
-## Hosting
+## Install on an AlmaLinux server
 
-Any host that runs Node.js with a **persistent disk** works (a VPS, or Render/Railway with a volume).
-Everything is stored in the `data/` folder (database + prize photos). **Back it up regularly.**
-If you open `/admin` for the first time from another computer, it asks for a one-time setup code that is
-printed in the server log, so nobody else can claim your admin panel first.
+`install.sh` sets everything up on AlmaLinux 8, 9 or 10 (or Rocky Linux / RHEL): Node.js, a `winbig`
+system service that starts on boot, nginx with a free HTTPS certificate, the firewall and SELinux.
+
+1. Point your domain's DNS (an **A record**) at the server's IP address.
+2. Log in to the server as root and run:
+
+   ```bash
+   dnf install -y git
+   git clone https://github.com/dadad132/WINBIG.git
+   cd WINBIG
+   bash install.sh --domain winbig.co.za --email you@example.com
+   ```
+
+3. Open `https://your-domain/admin`, create the admin password, and enter the one-time **setup code**
+   the installer printed (this stops anyone else claiming your admin panel first).
+
+Leave out `--domain` to try it on `http://SERVER-IP:3000` first. Yoco needs HTTPS, so add the domain
+before taking payments by running the installer again with `--domain`.
+
+**Updating** keeps your data and settings: `cd WINBIG && git pull && bash install.sh`
+
+**On the server:**
+
+| Command                    | What it does                                        |
+|----------------------------|-----------------------------------------------------|
+| `sudo winbig status`       | Is the website running?                             |
+| `sudo winbig logs`         | Live log                                            |
+| `sudo winbig restart`      | Restart the website                                 |
+| `sudo winbig backup`       | Save the database and photos to `/var/backups/winbig` |
+| `sudo winbig setup-code`   | Show the one-time code for creating the admin password |
+| `sudo winbig reset-admin`  | Forgot the admin password                           |
+| `sudo winbig settings`     | Edit `/etc/winbig/winbig.env`                       |
+
+Where things live: the app is in `/opt/winbig`, settings in `/etc/winbig/winbig.env`, and the database
+and prize photos in `/var/lib/winbig/data`. **Back up regularly** and copy backups off the server.
+
+## Other hosting
+
+Any host that runs Node.js with a **persistent disk** works. Everything is stored in the `data/` folder
+(or `DATA_DIR`). If you open `/admin` for the first time from another computer, it asks for a one-time
+setup code that is printed in the server log.
 
 ## Files
 

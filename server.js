@@ -46,7 +46,9 @@ app.use((err, req, res, next) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-app.listen(port, () => {
+// HOST=127.0.0.1 keeps the app private when it runs behind nginx (see install.sh).
+const listenArgs = process.env.HOST ? [port, process.env.HOST] : [port];
+app.listen(...listenArgs, () => {
   console.log(`\n  WinBig is running at http://localhost:${port}`);
   console.log(`  Admin panel:         http://localhost:${port}/admin`);
   console.log(`  Payments:            ${yoco.mode().toUpperCase()} mode${yoco.mode() === 'demo' ? ' (no Yoco key set - payments are simulated)' : ''}`);
