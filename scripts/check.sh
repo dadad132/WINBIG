@@ -61,6 +61,42 @@ else
   bad "WinBig doesn't answer inside the server (port $PORT)"
 fi
 
+# ------------------------------------------------------------------ customer data
+
+DATA_DIR=$(sed -n 's/^DATA_DIR=//p' "$CONF_FILE" | tail -n 1)
+DB_FILE=${DATA_DIR:-/var/lib/winbig/data}/winbig.db
+if [[ -f $DB_FILE ]]; then
+  if [[ $(head -c 15 "$DB_FILE") == "SQLite format 3" ]]; then
+    bad "Customer data is NOT encrypted"
+    tip "From the WinBig folder run:  git pull && bash install.sh"
+  else
+    good "Customer data is encrypted (AES-256) and kept in $DATA_DIR, so it survives restarts"
+  fi
+fi
+if [[ -f /etc/winbig/secret.env && $(stat -c '%U %a' /etc/winbig/secret.env) == "root 600" ]]; then
+  good "The encryption key is stored separately, readable only by root"
+else
+  bad "The encryption key file is missing or not protected"
+  tip "From the WinBig folder run:  bash install.sh"
+fi
+if systemctl is-active --quiet winbig-backup.timer; then
+  latest=$(find /var/backups/winbig -name 'winbig-*.tar.gz' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+  if [[ -n $latest ]]; then
+    good "Encrypted backups run every night (latest: $(date -r "$latest" '+%d %b %Y %H:%M'))"
+  else
+    good "Encrypted backups run every night (the first one hasn't happened yet)"
+  fi
+else
+  bad "Automatic backups are switched off"
+  tip "Run:  systemctl enable --now winbig-backup.timer"
+fi
+if systemctl is-active --quiet dnf-automatic.timer; then
+  good "Server security updates install automatically"
+else
+  bad "Automatic security updates are switched off"
+  tip "From the WinBig folder run:  bash install.sh"
+fi
+
 # ------------------------------------------------------------------ domain & nginx
 
 DOMAIN=""

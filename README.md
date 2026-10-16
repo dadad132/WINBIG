@@ -42,7 +42,8 @@ everything without being charged.
 | Draw winner     | Spin the winner wheel. Shows everyone's chance, and the winner's contact details.   |
 | Payments        | Paste your Yoco key and website address.                                             |
 
-**Forgot the admin password?** Stop the site and run `npm run reset-admin`, then open `/admin` to create a new one.
+**Forgot the admin password?** On a server run `sudo winbig reset-admin`; on your own computer stop the site and
+run `npm run reset-admin`. Then open `/admin` to create a new one.
 
 ## Connecting Yoco
 
@@ -80,18 +81,40 @@ before taking payments by running the installer again with `--domain`.
 
 **On the server:**
 
-| Command                    | What it does                                        |
-|----------------------------|-----------------------------------------------------|
-| `sudo winbig status`       | Is the website running?                             |
-| `sudo winbig logs`         | Live log                                            |
-| `sudo winbig restart`      | Restart the website                                 |
-| `sudo winbig backup`       | Save the database and photos to `/var/backups/winbig` |
-| `sudo winbig setup-code`   | Show the one-time code for creating the admin password |
-| `sudo winbig reset-admin`  | Forgot the admin password                           |
-| `sudo winbig settings`     | Edit `/etc/winbig/winbig.env`                       |
+| Command                      | What it does                                               |
+|------------------------------|------------------------------------------------------------|
+| `sudo winbig check`          | Checks everything and explains what to fix                 |
+| `sudo winbig status`         | Is the website running?                                    |
+| `sudo winbig logs`           | Live log                                                   |
+| `sudo winbig restart`        | Restart the website                                        |
+| `sudo winbig backup`         | Make an encrypted backup now (also automatic every night)  |
+| `sudo winbig backups`        | List the backups                                           |
+| `sudo winbig restore FILE`   | Put a backup back (current data is backed up first)        |
+| `sudo winbig show-key`       | Show the database encryption key                           |
+| `sudo winbig setup-code`     | Show the one-time code for creating the admin password     |
+| `sudo winbig reset-admin`    | Forgot the admin password                                  |
+| `sudo winbig settings`       | Edit `/etc/winbig/winbig.env`                              |
 
-Where things live: the app is in `/opt/winbig`, settings in `/etc/winbig/winbig.env`, and the database
-and prize photos in `/var/lib/winbig/data`. **Back up regularly** and copy backups off the server.
+Where things live: the app is in `/opt/winbig`, settings in `/etc/winbig/winbig.env`, the encryption key in
+`/etc/winbig/secret.env`, the database and prize photos in `/var/lib/winbig/data`, and backups in
+`/var/backups/winbig`.
+
+## Your data: restarts, encryption and backups
+
+- **Restarts are safe.** Everything is saved on disk the moment it happens. Restarting WinBig, rebooting the
+  server or re-running the installer never deletes customer data.
+- **Customer data is encrypted** (AES-256, SQLCipher format): names, emails, phone numbers, orders, tickets
+  and your Yoco key. A copy of the database file or a backup is useless without the key. Passwords are
+  never stored at all, only a one-way scrambled version (scrypt) that can't be turned back into the password.
+- **The key is kept separately** in `/etc/winbig/secret.env`, readable only by root. The installer shows it
+  once. **Save it in a password manager.** Without it, nobody (not even you) can open the backups.
+- **Encrypted backups** are made every night and kept for 14 days. Copy them off the server now and then
+  (to your computer or cloud storage): a backup on the same server doesn't help if the server itself is lost.
+- **Security updates** for the server install automatically every day.
+
+What encryption can't do: if an attacker gets full control (root) of the running server, they can reach
+anything the website itself can read. Keep that from happening: log in with SSH keys rather than passwords,
+keep the root password long and unique, and don't share server access.
 
 ## Other hosting
 

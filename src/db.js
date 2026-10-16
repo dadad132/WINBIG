@@ -1,12 +1,95 @@
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
+const Database = require('better-sqlite3-multiple-ciphers');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const DB_FILE = path.join(DATA_DIR, 'winbig.db');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const db = new Database(path.join(DATA_DIR, 'winbig.db'));
+// ---------------------------------------------------------------- encryption
+// On a server, install.sh sets DB_KEY and the whole database file is encrypted (AES-256, SQLCipher 4
+// format), so a copy of the file or a backup is unreadable without the key. Without DB_KEY the database
+// is stored unencrypted, which is fine for trying WinBig on your own computer.
+
+const KEY = (process.env.DB_KEY || '').trim();
+delete process.env.DB_KEY; // keep the key out of anything else that reads the environment
+if (KEY && !/^[A-Za-z0-9]{32,128}$/.test(KEY)) {
+  throw new Error('DB_KEY must be 32 to 128 letters and numbers.');
+}
+
+function unlock(conn) {
+  if (!KEY) return;
+  conn.pragma("cipher = 'sqlcipher'");
+  conn.pragma('legacy = 4');
+  if (KEY) conn.pragma(`key = '${KEY}'`);
+}
+
+function isUnencrypted(file) {
+  const header = Buffer.alloc(16);
+  const fd = fs.openSync(file, 'r');
+  fs.readSync(fd, header, 0, 16, 0);
+  fs.closeSync(fd);
+  return header.toString('latin1') === 'SQLite format 3\0';
+}
+
+// Encrypts a database that was created before encryption was switched on, keeping all its data.
+// Row counts are compared afterwards; if anything differs the original file is put back.
+function encryptExistingDatabase() {
+  const tableCounts = (conn) =>
+    JSON.stringify(
+      conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .all()
+        .map(({ name }) => [name, conn.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get().n])
+    );
+
+  const plain = new Database(DB_FILE);
+  plain.pragma('wal_checkpoint(TRUNCATE)');
+  plain.pragma('journal_mode = DELETE');
+  const before = tableCounts(plain);
+  plain.close();
+
+  const original = `${DB_FILE}.before-encryption`;
+  fs.copyFileSync(DB_FILE, original);
+  try {
+    const conn = new Database(DB_FILE);
+    conn.pragma("cipher = 'sqlcipher'");
+    conn.pragma('legacy = 4');
+    conn.pragma(`rekey = '${KEY}'`);
+    conn.close();
+
+    const check = new Database(DB_FILE);
+    unlock(check);
+    const after = tableCounts(check);
+    check.close();
+    if (after !== before) throw new Error('the encrypted copy does not match the original');
+    fs.rmSync(original);
+    fs.rmSync(`${DB_FILE}-shm`, { force: true });
+  } catch (err) {
+    fs.copyFileSync(original, DB_FILE);
+    fs.rmSync(original);
+    throw new Error(`Could not encrypt the database, so it was left unchanged: ${err.message}`);
+  }
+}
+
+if (KEY && fs.existsSync(DB_FILE) && fs.statSync(DB_FILE).size > 0 && isUnencrypted(DB_FILE)) {
+  console.log('  Encrypting the existing database...');
+  encryptExistingDatabase();
+  console.log('  The database is now encrypted.');
+}
+
+const db = new Database(DB_FILE);
+unlock(db);
+try {
+  db.prepare('SELECT COUNT(*) FROM sqlite_master').get();
+} catch {
+  throw new Error(
+    KEY
+      ? 'Could not open the database: the encryption key (DB_KEY) is wrong, or the file is damaged.'
+      : 'The database is encrypted, so WinBig needs its key. Set DB_KEY (on a server: run it with sudo winbig).'
+  );
+}
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -152,4 +235,11 @@ if (!getSetting('seeded')) {
   })();
 }
 
-module.exports = { db, getSetting, setSetting, deleteSetting, DATA_DIR, UPLOAD_DIR };
+// A consistent copy of the live database, encrypted with the same key (safe while WinBig is running).
+function backupDatabase(file) {
+  db.prepare('VACUUM INTO ?').run(file);
+}
+
+const isEncrypted = () => Boolean(KEY);
+
+module.exports = { db, getSetting, setSetting, deleteSetting, backupDatabase, isEncrypted, DATA_DIR, UPLOAD_DIR, DB_FILE };
