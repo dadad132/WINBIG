@@ -7,21 +7,24 @@
 #   dnf install -y git
 #   git clone https://github.com/dadad132/WINBIG.git
 #   cd WINBIG
-#   bash install.sh --domain winbig.co.za --email you@example.com
+#   bash install.sh
 #
+# The installer asks for your domain name and email (for the free HTTPS certificate).
 # Update to the latest version later (your data and settings are kept):
 #
 #   cd WINBIG && git pull && bash install.sh
 #
-# Options:
+# Something not working? This explains what's wrong and how to fix it:
+#
+#   bash install.sh --check
+#
+# Options (instead of answering the questions):
 #   --domain NAME   Your website's domain name. Sets up nginx and a free HTTPS certificate
 #                   (Let's Encrypt). Point the domain's DNS at this server first.
 #   --email ADDR    Email address for HTTPS certificate expiry notices.
 #   --port N        Port the app uses inside the server (default 3000).
+#   --check         Only check the installation, don't change anything.
 #   --help          Show this help.
-#
-# Without --domain the site runs on http://SERVER-IP:3000, which is fine for trying it out.
-# Yoco needs HTTPS, so run the installer again with --domain before taking real payments.
 
 set -Eeuo pipefail
 
@@ -41,6 +44,7 @@ SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DOMAIN=""
 EMAIL=""
 PORT=""
+CHECK_ONLY=false
 
 # ------------------------------------------------------------------ output helpers
 
@@ -67,7 +71,7 @@ run() {
   fi
 }
 
-usage() { sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # https://winbig.co.za/ -> winbig.co.za
 clean_domain() {
@@ -93,12 +97,17 @@ while [[ $# -gt 0 ]]; do
     --domain=*) DOMAIN=${1#*=} && shift ;;
     --email=*) EMAIL=${1#*=} && shift ;;
     --port=*) PORT=${1#*=} && shift ;;
+    --check) CHECK_ONLY=true && shift ;;
     -h | --help) usage && exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
   esac
 done
 
 [[ $EUID -eq 0 ]] || die "Please run this as root:  sudo bash install.sh"
+if $CHECK_ONLY; then
+  trap - ERR
+  exec bash "$SRC_DIR/scripts/check.sh"
+fi
 [[ -f $SRC_DIR/server.js && -f $SRC_DIR/package-lock.json ]] || die "Run install.sh from inside the WinBig folder."
 [[ -r /etc/os-release ]] || die "Can't tell which Linux this is (/etc/os-release is missing)."
 # shellcheck source=/dev/null
@@ -124,9 +133,6 @@ set_conf() {
   fi
 }
 
-FIRST_INSTALL=true
-[[ -f $CONF_FILE ]] && FIRST_INSTALL=false
-
 PORT=${PORT:-$(conf_get PORT)}
 PORT=${PORT:-3000}
 if ! [[ $PORT =~ ^[0-9]+$ ]] || ((PORT < 1 || PORT > 65535)); then
@@ -138,10 +144,10 @@ DOMAIN=$(clean_domain "$DOMAIN")
 if [[ -z $DOMAIN && -f $NGINX_CONF ]]; then
   DOMAIN=$(awk '$1 == "server_name" { gsub(";", "", $2); print $2; exit }' "$NGINX_CONF")
 fi
-if $FIRST_INSTALL && [[ -z $DOMAIN && -t 0 ]]; then
+if [[ -z $DOMAIN && -t 0 ]]; then
   echo
-  echo "Which domain name will WinBig use (for example winbig.co.za)?"
-  echo "Its DNS must already point to this server. Leave it empty to skip HTTPS for now."
+  echo "${B}Which domain name will WinBig use?${N} (for example winbig.co.za)"
+  echo "Its DNS must point to this server. Press Enter without typing anything to skip HTTPS for now."
   read -r -p "Domain: " DOMAIN
   DOMAIN=$(clean_domain "$DOMAIN")
 fi
@@ -149,8 +155,19 @@ if [[ -n $DOMAIN && ! $DOMAIN =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0
   die "\"$DOMAIN\" doesn't look like a domain name."
 fi
 if [[ -n $DOMAIN && -z $EMAIL && ! -d /etc/letsencrypt/live/$DOMAIN && -t 0 ]]; then
-  read -r -p "Email address for HTTPS certificate notices: " EMAIL
+  echo
+  echo "${B}Your email address${N} (Let's Encrypt emails you if the HTTPS certificate ever has a problem)"
+  read -r -p "Email: " EMAIL
 fi
+
+# Also serve www.DOMAIN when its DNS points to the same place as DOMAIN.
+dns_ips() { getent ahostsv4 "$1" 2>/dev/null | awk '{ print $1 }' | sort -u | xargs || true; }
+WWW=""
+if [[ -n $DOMAIN && $DOMAIN != www.* ]]; then
+  www_ips=$(dns_ips "www.$DOMAIN")
+  if [[ -n $www_ips && $www_ips == "$(dns_ips "$DOMAIN")" ]]; then WWW="www.$DOMAIN"; fi
+fi
+NAMES="$DOMAIN${WWW:+ $WWW}"
 
 echo "${B}Installing WinBig on ${PRETTY_NAME:-AlmaLinux}${N}"
 
@@ -324,6 +341,7 @@ usage() {
   cat <<'USAGE'
 Usage: sudo winbig <command>
 
+  check         Check everything and explain what to fix
   status        Is WinBig running?
   logs          Show the live log (press Ctrl+C to stop)
   restart       Restart WinBig
@@ -352,6 +370,7 @@ setup_code() {
 }
 
 case ${1:-} in
+  check) bash "$APP_DIR/scripts/check.sh" ;;
   status) systemctl status winbig --no-pager ;;
   logs) journalctl -u winbig -f ;;
   restart)
@@ -392,19 +411,28 @@ firewall_on() { systemctl is-active --quiet firewalld; }
 HTTPS_OK=false
 
 if [[ -n $DOMAIN ]]; then
-  step "Setting up nginx for $DOMAIN"
+  step "Setting up nginx for $NAMES"
   run dnf -y install nginx
-  # Only (re)write the nginx file for a new domain: certbot adds its HTTPS settings to this file.
-  if [[ ! -f $NGINX_CONF ]] || ! grep -q "server_name $DOMAIN;" "$NGINX_CONF"; then
+  # Only (re)write the nginx file when the names change: certbot adds its HTTPS settings to this file.
+  if [[ ! -f $NGINX_CONF ]] || ! grep -q "server_name $NAMES;" "$NGINX_CONF"; then
+    www_redirect=""
+    if [[ -n $WWW ]]; then
+      www_redirect="
+    # Send www visitors to the main address, so they stay signed in.
+    if (\$host = $WWW) {
+        return 301 \$scheme://$DOMAIN\$request_uri;
+    }
+"
+    fi
     cat >"$NGINX_CONF" <<EOF
 # WinBig - created by install.sh
 server {
     listen 80;
     listen [::]:80;
-    server_name $DOMAIN;
+    server_name $NAMES;
 
     client_max_body_size 10m; # prize photo uploads
-
+$www_redirect
     location / {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_http_version 1.1;
@@ -429,7 +457,7 @@ EOF
     run firewall-cmd --reload
   fi
 
-  step "Getting a free HTTPS certificate for $DOMAIN"
+  step "Getting a free HTTPS certificate for $NAMES"
   run dnf -y install epel-release dnf-plugins-core
   if ((EL == 8)); then
     dnf config-manager --set-enabled powertools >>"$LOG" 2>&1 || true
@@ -439,10 +467,20 @@ EOF
   run dnf -y install certbot python3-certbot-nginx
   email_args=(--register-unsafely-without-email)
   if [[ -n $EMAIL ]]; then email_args=(--email "$EMAIL"); fi
-  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect --keep-until-expiring "${email_args[@]}" >>"$LOG" 2>&1; then
+  domain_args=(-d "$DOMAIN")
+  if [[ -n $WWW ]]; then domain_args+=(-d "$WWW"); fi
+  if certbot --nginx "${domain_args[@]}" --non-interactive --agree-tos --redirect --keep-until-expiring --expand \
+    "${email_args[@]}" >>"$LOG" 2>&1; then
     systemctl enable --now certbot-renew.timer >>"$LOG" 2>&1 || true
     HTTPS_OK=true
     info "HTTPS is set up, and the certificate renews automatically."
+  elif [[ -n $WWW ]] && certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect --keep-until-expiring \
+    "${email_args[@]}" >>"$LOG" 2>&1; then
+    # www failed but the main domain works: keep the site on HTTPS.
+    systemctl enable --now certbot-renew.timer >>"$LOG" 2>&1 || true
+    HTTPS_OK=true
+    info "HTTPS is set up for $DOMAIN."
+    warn "Could not add $WWW to the certificate yet. Run the installer again later to retry."
   else
     warn "Could not get an HTTPS certificate yet."
     warn "This usually means $DOMAIN doesn't point to this server's IP address yet,"
@@ -480,16 +518,19 @@ echo "  Data:          $DATA_DIR  (database and prize photos)"
 echo "  Install log:   $LOG"
 echo
 echo "  Handy commands:"
+echo "    sudo winbig check         check everything and explain what to fix"
 echo "    sudo winbig status        is it running?"
 echo "    sudo winbig logs          live log"
 echo "    sudo winbig restart       restart the website"
 echo "    sudo winbig backup        back up the database and photos"
 echo "    sudo winbig reset-admin   forgot the admin password"
 echo
-echo "  Update later:  cd $SRC_DIR && git pull && sudo bash install.sh"
+echo "  Update later:  cd $SRC_DIR && git pull && bash install.sh"
 if [[ -z $DOMAIN ]]; then
   echo
   warn "No domain was given, so the site runs without HTTPS on port $PORT."
-  warn "Yoco needs HTTPS. When your domain points here, run:  sudo bash install.sh --domain your-domain.co.za --email you@example.com"
+  warn "Yoco needs HTTPS. When your domain points here, run:  bash install.sh   (it asks for the domain)"
 fi
-echo
+
+trap - ERR
+bash "$APP_DIR/scripts/check.sh" || true
