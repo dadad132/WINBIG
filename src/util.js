@@ -95,6 +95,24 @@ function loginLimiter(limit = 10, windowMs = 15 * 60 * 1000) {
   };
 }
 
+// Allows each IP address `limit` attempts per window, e.g. to stop bots creating lots of accounts.
+function rateLimiter(limit, windowMs, message) {
+  const hits = new Map(); // ip -> { count, since }
+  return {
+    hit(ip) {
+      const now = Date.now();
+      if (hits.size > 10000) hits.clear();
+      const record = hits.get(ip);
+      if (!record || now - record.since > windowMs) {
+        hits.set(ip, { count: 1, since: now });
+        return;
+      }
+      if (record.count >= limit) throw httpError(429, message);
+      record.count += 1;
+    },
+  };
+}
+
 // True only for a browser on the same computer as the server, not coming through a proxy.
 function isLocalRequest(req) {
   const proxied = ['x-forwarded-for', 'x-real-ip', 'forwarded', 'via'].some((h) => req.headers[h]);
@@ -116,5 +134,6 @@ module.exports = {
   verifyPassword,
   checkNewPassword,
   loginLimiter,
+  rateLimiter,
   isLocalRequest,
 };

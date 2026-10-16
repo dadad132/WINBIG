@@ -1,12 +1,13 @@
-// Customer accounts: sign up, sign in, details, password and "My tickets".
+// Customer accounts: sign up, sign in, details, password, credits, spinning and "My tickets".
 const express = require('express');
 const { db } = require('./db');
 const { startSession, endSession, currentUser, requireUser, publicUser } = require('./auth');
-const { ticketsFor } = require('./orders');
-const { httpError, hashPassword, verifyPassword, checkNewPassword, loginLimiter } = require('./util');
+const { currentCompetition, creditBalance, spinWheel, userEntries, wheelValues } = require('./orders');
+const { httpError, hashPassword, verifyPassword, checkNewPassword, loginLimiter, rateLimiter, isLocalRequest, ticketNo } = require('./util');
 
 const router = express.Router();
 const limiter = loginLimiter();
+const signupLimiter = rateLimiter(10, 3600 * 1000, 'Too many new accounts from your network. Please try again later.');
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let dummyHash; // checked for unknown emails so they take as long as a wrong password
 
@@ -24,12 +25,15 @@ function cleanDetails(body = {}) {
 }
 
 const emailTaken = (email, exceptId = 0) => db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(email, exceptId);
+const withCredits = (user) => user && { ...user, credits: creditBalance(user.id) };
+const imageUrl = (c) => (c.image_path ? `/uploads/${c.image_path}` : null);
 
 router.post('/signup', async (req, res) => {
   const details = cleanDetails(req.body);
   checkNewPassword(req.body?.password);
   if (req.body?.agree !== true) throw httpError(400, 'Please confirm you are 18 or older and accept the terms.');
   if (emailTaken(details.email)) throw httpError(409, 'There is already an account with this email. Please sign in instead.');
+  if (!isLocalRequest(req)) signupLimiter.hit(req.ip);
 
   const password_hash = await hashPassword(req.body.password);
   let id;
@@ -45,7 +49,7 @@ router.post('/signup', async (req, res) => {
     throw err;
   }
   startSession(req, res, id);
-  res.json({ user: publicUser({ id, ...details }) });
+  res.json({ user: withCredits(publicUser({ id, ...details })) });
 });
 
 router.post('/signin', async (req, res) => {
@@ -60,7 +64,7 @@ router.post('/signin', async (req, res) => {
   }
   limiter.clear(req.ip);
   startSession(req, res, user.id);
-  res.json({ user: publicUser(user) });
+  res.json({ user: withCredits(publicUser(user)) });
 });
 
 router.post('/signout', (req, res) => {
@@ -68,7 +72,7 @@ router.post('/signout', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/me', (req, res) => res.json({ user: currentUser(req) }));
+router.get('/me', (req, res) => res.json({ user: withCredits(currentUser(req)) }));
 
 router.put('/me', requireUser, (req, res) => {
   const details = cleanDetails(req.body);
@@ -77,7 +81,7 @@ router.put('/me', requireUser, (req, res) => {
     ...details,
     id: req.user.id,
   });
-  res.json({ user: publicUser({ id: req.user.id, ...details }) });
+  res.json({ user: withCredits(publicUser({ id: req.user.id, ...details })) });
 });
 
 router.put('/password', requireUser, async (req, res) => {
@@ -88,39 +92,72 @@ router.put('/password', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/orders', requireUser, (req, res) => {
-  // Unpaid orders older than 2 hours were most likely abandoned, so they're hidden.
-  const rows = db
-    .prepare(
-      `SELECT o.*, c.title, c.image_path, c.draw_at, c.status AS competition_status,
-              (SELECT e.order_id FROM draws d JOIN entries e ON e.id = d.entry_id
-               WHERE d.competition_id = c.id ORDER BY d.id DESC LIMIT 1) AS winning_order
-       FROM orders o JOIN competitions c ON c.id = o.competition_id
-       WHERE o.user_id = ? AND (o.status != 'pending' OR o.created_at > datetime('now', '-2 hours'))
-       ORDER BY o.id DESC`
-    )
-    .all(req.user.id);
+// ---------------------------------------------------------------- spinning
 
-  res.json(
-    rows.map((o) => ({
-      id: o.id,
-      status: o.status,
-      amount_cents: o.amount_cents,
-      base_entries: o.base_entries,
-      bonus_entries: o.bonus_entries,
-      spun: Boolean(o.spun),
-      created_at: o.created_at,
-      link: `/success?order=${o.id}&t=${o.access_token}`,
-      tickets: ticketsFor(o.id),
-      won: o.competition_status === 'drawn' && o.winning_order === o.id,
-      competition: {
-        title: o.title,
-        image_url: o.image_path ? `/uploads/${o.image_path}` : null,
-        draw_at: o.draw_at,
-        status: o.competition_status,
-      },
-    }))
-  );
+function spinState(userId) {
+  const c = currentCompetition();
+  return {
+    credits: creditBalance(userId),
+    wheel: wheelValues(),
+    competition: c && {
+      id: c.id,
+      title: c.title,
+      image_url: imageUrl(c),
+      starts_at: c.starts_at,
+      draw_at: c.draw_at,
+      phase: c.phase,
+      my_entries: userEntries(c.id, userId),
+    },
+  };
+}
+
+router.get('/spin', requireUser, (req, res) => res.json(spinState(req.user.id)));
+
+router.post('/spin', requireUser, (req, res) => {
+  const result = spinWheel(req.user.id);
+  res.json({ ...result, my_entries: userEntries(result.competitionId, req.user.id) });
+});
+
+// ---------------------------------------------------------------- my tickets, purchases & credit history
+
+router.get('/overview', requireUser, (req, res) => {
+  const userId = req.user.id;
+
+  const competitions = db
+    .prepare(
+      `SELECT c.id, c.title, c.image_path, c.draw_at, c.status, COUNT(e.id) AS entries,
+              (SELECT COALESCE(we.user_id, wo.user_id) FROM draws d
+                 JOIN entries we ON we.id = d.entry_id LEFT JOIN orders wo ON wo.id = we.order_id
+               WHERE d.competition_id = c.id ORDER BY d.id DESC LIMIT 1) AS winner_id
+       FROM entries e JOIN competitions c ON c.id = e.competition_id
+       WHERE e.user_id = ?
+       GROUP BY c.id ORDER BY MAX(e.id) DESC`
+    )
+    .all(userId)
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      image_url: imageUrl(c),
+      draw_at: c.draw_at,
+      status: c.status,
+      entries: c.entries,
+      won: c.status === 'drawn' && c.winner_id === userId,
+      tickets: db
+        .prepare('SELECT id FROM entries WHERE user_id = ? AND competition_id = ? ORDER BY id LIMIT 300')
+        .all(userId, c.id)
+        .map((e) => ticketNo(e.id)),
+    }));
+
+  // Unpaid orders older than 2 hours were most likely abandoned, so they're hidden.
+  const purchases = db
+    .prepare(
+      `SELECT id, created_at, status, kind, credits, base_entries, amount_cents FROM orders
+       WHERE user_id = ? AND (status != 'pending' OR created_at > datetime('now', '-2 hours'))
+       ORDER BY id DESC LIMIT 50`
+    )
+    .all(userId);
+
+  res.json({ credits: creditBalance(userId), competitions, purchases });
 });
 
 module.exports = router;

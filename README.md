@@ -1,6 +1,6 @@
 # WinBig
 
-Lucky-draw prize website: customers sign up, buy ticket packages, pay with Yoco, spin a wheel for bonus
+Lucky-draw prize website: customers sign up, buy spins or credits with Yoco, spin a wheel that wins them
 entries, and you spin the winner wheel in the admin panel to draw a random winner.
 
 ## Run it on your computer
@@ -23,23 +23,27 @@ everything without being charged.
 ## How it works
 
 - **Customers** sign up with first name, surname, email, cellphone number and a password. Each gets a
-  unique **customer ID** (e.g. `WBC-00042`). Every ticket they buy is linked to that ID, and their
-  **My tickets** page shows all their entries.
-- **Tickets**: every entry is one ticket (e.g. `WB000123`). After paying, the customer spins the bonus wheel
-  for extra entries.
+  unique **customer ID** (e.g. `WBC-00042`) and a credit wallet.
+- **Spins & credits**: 1 credit = 1 spin. Customers buy spins in packages (e.g. R100 = 1, R400 = 5,
+  R800 = 10, then straight to the wheel) or any number of credits (e.g. R2 000 = 20 credits, saved for later).
+- **Every spin turns the wheel once** and wins the entries it lands on (1 to 4 by default). 10 spins means
+  10 turns of the wheel. Each entry is one ticket (e.g. `WB000123`) in the draw for the prize that's open.
 - **The draw**: the winner wheel gives each customer a slice sized by their number of entries, so more
   entries means a bigger chance. The server picks one ticket at random and the wheel stops on its owner.
+- **The home page** shows a live count of registered people and an About section (who you are, what you
+  do and why), both managed in the admin panel.
 
 ## Admin panel
 
 | Page            | What you can do                                                                     |
 |-----------------|-------------------------------------------------------------------------------------|
 | Prizes          | Name, value, photo, description, **start and end date**. Schedule the next prize ahead. |
-| Ticket packages | Set prices and entries (e.g. R100 = 1, R400 = 5, R800 = 10).                         |
-| Spin wheel      | Bonus amounts (1, 2, 3, 4…) and how likely each one is.                              |
-| Customers       | Customer ID, name, surname, email, phone, entries. Reset a forgotten password. CSV. |
-| Orders          | Every purchase and its ticket numbers. Search, CSV.                                  |
+| Prices          | Spin packages (e.g. R400 = 5 spins) and the price of one credit (R100).              |
+| Spin wheel      | The entries each spin can win (1, 2, 3, 4…) and how likely each one is.              |
+| Customers       | Customer ID, name, surname, email, phone, credits, entries. Give or take credits, reset a password. CSV. |
+| Orders          | Every purchase (spins or credits). Search, CSV.                                      |
 | Draw winner     | Spin the winner wheel. Shows everyone's chance, and the winner's contact details.   |
+| Website         | The About section, contact details and the live "people registered" counter.        |
 | Payments        | Paste your Yoco key and website address.                                             |
 
 **Forgot the admin password?** On a server run `sudo winbig reset-admin`; on your own computer stop the site and

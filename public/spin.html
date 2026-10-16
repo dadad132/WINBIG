@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Spin the wheel | WinBig</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/wheel.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="/" class="logo"><img src="/img/favicon.svg" alt=""><span>Win<b>Big</b></span></a>
+      <div id="auth-nav" class="auth-nav"></div>
+    </div>
+  </header>
+  <main class="wrap spin-page" id="spin-page" hidden>
+    <div class="spin-layout">
+      <section class="panel spin-panel">
+        <div class="spin-head" id="spin-head"></div>
+        <div class="wheel-area"><div id="wheel"></div></div>
+        <div class="spin-controls">
+          <button class="btn btn-lg" id="spin-one">Spin</button>
+          <button class="btn btn-ghost" id="spin-all">Spin all</button>
+        </div>
+        <p class="form-error" id="spin-error" role="alert"></p>
+        <p class="spin-summary" id="spin-summary" hidden></p>
+        <p class="notice" id="spin-notice" hidden></p>
+      </section>
+      <aside class="spin-side">
+        <div class="stat-card"><span>Spins left</span><b id="sp-credits">0</b></div>
+        <div class="stat-card"><span>Your entries in this draw</span><b id="sp-entries">0</b></div>
+        <div class="results">
+          <h3>Your spins</h3>
+          <p class="hint-small" id="sp-empty">Each spin's result shows here.</p>
+          <ol id="sp-results"></ol>
+        </div>
+        <a href="/#spins" class="btn btn-ghost">Buy more spins</a>
+        <a href="/account" class="side-link">My tickets →</a>
+      </aside>
+    </div>
+  </main>
+  <script src="/js/common.js"></script>
+  <script src="/js/wheel.js"></script>
+  <script src="/js/spin.js"></script>
+</body>
+</html>

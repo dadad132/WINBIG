@@ -59,21 +59,24 @@
     if (e.target.closest('[data-close]')) modal.close();
   });
 
+  function bought(o) {
+    if (o.kind === 'spins') return `${o.credits} ${o.credits === 1 ? 'spin' : 'spins'}`;
+    if (o.kind === 'credits') return `${o.credits} ${o.credits === 1 ? 'credit' : 'credits'}`;
+    return entries(o.base_entries + o.bonus_entries); // older orders bought entries directly
+  }
+
   function ordersTable(rows) {
     if (!rows.length) return html`<p class="hint">No orders yet.</p>`;
     return html`<div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Date</th><th>Customer</th><th>Prize</th><th>Amount</th><th>Entries</th><th>Status</th><th>Tickets</th></tr></thead>
+      <thead><tr><th>#</th><th>Date</th><th>Customer</th><th>Bought</th><th>Amount</th><th>Status</th><th>Tickets</th></tr></thead>
       <tbody>${rows.map(
         (o) => html`<tr>
           <td>${o.id}</td>
           <td>${formatDate(o.created_at)}</td>
           <td><b>${o.name}</b> ${o.customer_no ? html`<span class="hint mono">${o.customer_no}</span>` : ''}<br>
               <span class="hint">${o.email} · ${o.phone}</span></td>
-          <td>${o.competition_title}</td>
+          <td>${bought(o)}</td>
           <td>${money(o.amount_cents)}</td>
-          <td>${o.base_entries}${o.spun
-            ? html` + <b>${o.bonus_entries}</b> bonus`
-            : o.status === 'paid' ? html` <span class="hint">(not spun yet)</span>` : ''}</td>
           <td>${pill(o.status, o.status === 'pending' ? 'awaiting payment' : o.status)}</td>
           <td>${o.tickets.length
             ? html`<details><summary>${o.tickets.length} tickets</summary><div class="ticket-list">${o.tickets.map(
@@ -96,6 +99,7 @@
         <div class="stat"><span>Paid orders</span><b>${s.paid_orders}</b></div>
         <div class="stat"><span>Customers</span><b>${s.customers}</b></div>
         <div class="stat"><span>Entries for current prize</span><b>${c ? c.entries : '–'}</b></div>
+        <div class="stat"><span>Spins not used yet</span><b>${s.credits_unused}</b></div>
       </div>
       ${s.review_orders
         ? html`<div class="alert error"><b>${s.review_orders} order(s) need review:</b> the amount paid didn't match the package price.
@@ -248,27 +252,54 @@
   // ------------------------------------------------------------------ ticket packages
 
   async function packages() {
-    const list = await api('/api/admin/packages');
+    const [list, site] = await Promise.all([api('/api/admin/packages'), api('/api/admin/site')]);
     setHTML(view, html`
       <div class="page-head">
-        <div><h1>Ticket packages</h1><p>Choose how many entries customers get for each price. Every purchase also earns one spin of the
-          <a href="#wheel">bonus wheel</a>. Changes show on the website straight away.</p></div>
-        <button class="btn primary" id="add-package">+ Add package</button>
+        <div><h1>Prices</h1><p>Customers buy <b>spins</b> in packages, or any number of <b>credits</b>. 1 credit = 1 spin.
+          Every spin turns the <a href="#wheel">wheel</a> once. Changes show on the website straight away.</p></div>
       </div>
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Price (R)</th><th>Entries</th><th>Per entry</th><th>Badge <span class="hint">(optional)</span></th><th>On website</th><th></th></tr></thead>
-        <tbody id="package-rows"></tbody>
-      </table></div></div>`);
+      <div class="card">
+        <h2>Price of one credit</h2>
+        <form id="credit-form" class="inline-form">
+          <label>Rand per credit<input name="credit_price" type="number" min="2" step="1" value="${site.credit_price_cents / 100}"></label>
+          <button class="btn primary">Save</button>
+          <span class="hint" id="credit-example"></span>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Spin packages</h2><button class="btn primary small" id="add-package">+ Add package</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Price (R)</th><th>Spins</th><th>Per spin</th><th>Badge <span class="hint">(optional)</span></th><th>On website</th><th></th></tr></thead>
+          <tbody id="package-rows"></tbody>
+        </table></div>
+      </div>`);
     const tbody = document.getElementById('package-rows');
     list.forEach((p) => tbody.appendChild(packageRow(p)));
     document.getElementById('add-package').onclick = () => tbody.appendChild(packageRow(null));
+
+    const form = document.getElementById('credit-form');
+    const example = () => {
+      const price = Number(form.elements.credit_price.value) || 0;
+      document.getElementById('credit-example').textContent = price > 0 ? `So R${(price * 20).toLocaleString('en-ZA')} buys 20 credits.` : '';
+    };
+    example();
+    form.elements.credit_price.oninput = example;
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/admin/site', { method: 'PUT', body: { credit_price: form.elements.credit_price.value } });
+        toast('Credit price saved');
+      } catch (err) {
+        toast(err.message, true);
+      }
+    };
   }
 
   function packageRow(pkg) {
     const tr = document.createElement('tr');
     setHTML(tr, html`
       <td><input name="price" type="number" min="2" step="1" value="${pkg ? pkg.price_cents / 100 : ''}" placeholder="100"></td>
-      <td><input name="entries" type="number" min="1" step="1" value="${pkg ? pkg.entries : ''}" placeholder="1"></td>
+      <td><input name="spins" type="number" min="1" step="1" value="${pkg ? pkg.spins : ''}" placeholder="1"></td>
       <td class="per"></td>
       <td><input name="badge" maxlength="30" value="${pkg?.badge || ''}" placeholder="e.g. Popular"></td>
       <td><input name="active" type="checkbox" ${!pkg || pkg.active ? 'checked' : ''}></td>
@@ -276,7 +307,7 @@
     const field = (name) => tr.querySelector(`[name=${name}]`);
     const updatePer = () => {
       const price = Number(field('price').value);
-      const count = Number(field('entries').value);
+      const count = Number(field('spins').value);
       tr.querySelector('.per').textContent = price > 0 && count > 0 ? money(Math.round((price * 100) / count)) : '–';
     };
     updatePer();
@@ -285,7 +316,7 @@
     tr.querySelector('[data-save]').onclick = async () => {
       const body = {
         price: field('price').value,
-        entries: Number(field('entries').value),
+        spins: Number(field('spins').value),
         badge: field('badge').value,
         active: field('active').checked,
       };
@@ -315,13 +346,13 @@
   async function wheel() {
     const segments = await api('/api/admin/wheel');
     setHTML(view, html`
-      <div class="page-head"><div><h1>Bonus spin wheel</h1>
-        <p>After paying, every customer spins this wheel once and wins the bonus entries it lands on.
+      <div class="page-head"><div><h1>Spin wheel</h1>
+        <p>Every spin (1 credit) turns this wheel once and wins the number of entries it lands on.
            The chance weight controls how often each result comes up. Customers only see the numbers, never the chances.</p></div></div>
       <div class="wheel-layout">
         <div class="card">
           <table>
-            <thead><tr><th>Bonus entries</th><th>Chance weight</th><th>Chance</th><th></th></tr></thead>
+            <thead><tr><th>Entries won</th><th>Chance weight</th><th>Chance</th><th></th></tr></thead>
             <tbody id="seg-rows"></tbody>
           </table>
           <p class="hint" id="wheel-summary"></p>
@@ -355,7 +386,7 @@
       const live = segs.filter((s) => s.weight > 0 && s.value > 0);
       const average = total ? live.reduce((sum, s) => sum + s.value * s.weight, 0) / total : 0;
       document.getElementById('wheel-summary').textContent = total
-        ? `On average a spin gives ${average.toFixed(2)} bonus entries. Segments with weight 0 are left off the wheel.`
+        ? `On average a spin wins ${average.toFixed(2)} entries. Segments with weight 0 are left off the wheel.`
         : 'Give at least one segment a weight above 0.';
       preview.setValues(live.map((s) => s.value));
     }
@@ -426,7 +457,7 @@
         list.length
           ? html`<div class="table-wrap"><table>
               <thead><tr><th>Customer ID</th><th>First name</th><th>Surname</th><th>Email</th><th>Phone</th><th>Signed up</th>
-                <th>Entries</th><th>Spent</th><th></th></tr></thead>
+                <th>Credits</th><th>Entries</th><th>Spent</th><th></th></tr></thead>
               <tbody>${list.map(
                 (c) => html`<tr>
                   <td class="mono">${c.customer_no}</td>
@@ -435,13 +466,33 @@
                   <td><a href="mailto:${c.email}">${c.email}</a></td>
                   <td><a href="tel:${c.phone}">${c.phone}</a></td>
                   <td class="nowrap">${formatDate(c.created_at, { dateStyle: 'medium' })}</td>
+                  <td>${c.credits}</td>
                   <td>${c.entries}</td>
                   <td>${money(c.spent_cents)}</td>
-                  <td class="actions"><button class="btn small" data-reset="${c.id}">Reset password</button></td>
+                  <td class="actions"><button class="btn small" data-credits="${c.id}">Credits</button>
+                    <button class="btn small" data-reset="${c.id}" title="Reset password">Password</button></td>
                 </tr>`
               )}</tbody></table></div>`
           : html`<p class="hint">${q ? 'No customers match your search.' : 'Nobody has signed up yet.'}</p>`
       );
+      $('customer-list').querySelectorAll('[data-credits]').forEach((button) => {
+        const c = list.find((x) => x.id === Number(button.dataset.credits));
+        button.onclick = async () => {
+          const answer = prompt(
+            `${c.first_name} ${c.last_name} has ${c.credits} credits.\n` +
+              'How many credits do you want to add? Use a minus sign to take credits away (for example -2).'
+          );
+          if (!answer) return;
+          const note = prompt('Reason (optional, e.g. "refund" or "Facebook competition"):') || '';
+          try {
+            const r = await api(`/api/admin/customers/${c.id}/credits`, { method: 'POST', body: { change: Number(answer), note } });
+            toast(`${c.first_name} now has ${r.credits} credits`);
+            load();
+          } catch (err) {
+            toast(err.message, true);
+          }
+        };
+      });
       $('customer-list').querySelectorAll('[data-reset]').forEach((button) => {
         const c = list.find((x) => x.id === Number(button.dataset.reset));
         button.onclick = async () => {
@@ -661,7 +712,7 @@
         <dt>Their entries</dt><dd>${d.winner_entries} of ${d.total_entries} (${percent(d.winner_entries / d.total_entries)} chance)</dd>
         <dt>Email</dt><dd>${d.email}</dd>
         <dt>Phone</dt><dd>${d.phone}</dd>
-        <dt>Order</dt><dd>#${d.order_id}</dd>
+        <dt>${d.order_id ? 'Order' : 'Spin'}</dt><dd>#${d.order_id || d.spin_id}</dd>
         <dt>Drawn</dt><dd>${formatDate(d.drawn_at)}</dd>
       </dl>
       <div class="contact">
@@ -755,6 +806,60 @@
       button.disabled = false;
       WB.confetti();
       setHTML(document.getElementById('history'), historyCard(await api(`/api/admin/competitions/${c.id}/draws`)));
+    };
+  }
+
+  // ------------------------------------------------------------------ website
+
+  async function website() {
+    const site = await api('/api/admin/site');
+    setHTML(view, html`
+      <div class="page-head"><div><h1>Website</h1><p>The About section, your contact details and the live counter on the home page.</p></div></div>
+      <form id="site-form">
+        <div class="card">
+          <h2>About us</h2>
+          <p class="hint">Tell visitors who you are, what you do and why. Start a new paragraph with an empty line.</p>
+          <label>Who we are<textarea name="who" rows="4" maxlength="2000">${site.about.who}</textarea></label>
+          <label>What we do<textarea name="what" rows="4" maxlength="2000">${site.about.what}</textarea></label>
+          <label>Why we do it<textarea name="why" rows="4" maxlength="2000">${site.about.why}</textarea></label>
+        </div>
+        <div class="card">
+          <h2>Contact details</h2>
+          <p class="hint">Shown at the bottom of every page. Leave a box empty to hide it.</p>
+          <div class="row">
+            <label>Email<input name="email" type="email" value="${site.contact.email}" placeholder="hello@winbigza.co.za"></label>
+            <label>Phone<input name="phone" type="tel" value="${site.contact.phone}" placeholder="082 123 4567"></label>
+          </div>
+          <label>WhatsApp number<input name="whatsapp" type="tel" value="${site.contact.whatsapp}" placeholder="082 123 4567"></label>
+        </div>
+        <div class="card">
+          <h2>Live counter</h2>
+          <label class="check-row"><input type="checkbox" name="show_counter" ${site.show_counter ? 'checked' : ''}>
+            <span>Show "<b>X people have registered</b>" on the home page (updates live)</span></label>
+        </div>
+        <p class="form-error" id="site-error"></p>
+        <div class="form-actions" style="justify-content:flex-start"><button class="btn primary">Save website</button>
+          <a class="btn" href="/#about" target="_blank">View on website ↗</a></div>
+      </form>`);
+
+    const form = document.getElementById('site-form');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const el = form.elements;
+      document.getElementById('site-error').textContent = '';
+      try {
+        await api('/api/admin/site', {
+          method: 'PUT',
+          body: {
+            about: { who: el.who.value, what: el.what.value, why: el.why.value },
+            contact: { email: el.email.value, phone: el.phone.value, whatsapp: el.whatsapp.value },
+            show_counter: el.show_counter.checked,
+          },
+        });
+        toast('Website saved');
+      } catch (err) {
+        document.getElementById('site-error').textContent = err.message;
+      }
     };
   }
 
@@ -902,7 +1007,7 @@
 
   // ------------------------------------------------------------------ routing
 
-  const pages = { dashboard, prizes, packages, wheel, customers, orders, draw, payments };
+  const pages = { dashboard, prizes, packages, wheel, customers, orders, draw, website, payments };
 
   async function route() {
     const name = pages[location.hash.slice(1)] ? location.hash.slice(1) : 'dashboard';

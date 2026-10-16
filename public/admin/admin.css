@@ -207,3 +207,11 @@ ol.guide li { margin-bottom: 10px; }
 .winner-card dt { color: #b9bce0; }
 .winner-card dd { margin: 0; font-weight: 600; word-break: break-word; }
 tr.is-winner td { background: #fff7d6; }
+
+/* ---------- prices & website */
+.inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.inline-form label { margin: 0; }
+.inline-form input { width: 160px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-head h2 { margin: 0; }
+.check-row { display: flex; align-items: center; gap: 10px; font-weight: 400; }

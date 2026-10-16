@@ -81,8 +81,9 @@
       setHTML(
         slot,
         user
-          ? html`<a href="/account" class="btn btn-sm">My tickets</a>
-                 <button type="button" class="btn btn-sm btn-ghost" data-signout>Sign out</button>`
+          ? html`${user.credits > 0 ? html`<a href="/spin" class="btn btn-sm" title="Spin the wheel">🎡 ${user.credits} ${user.credits === 1 ? 'spin' : 'spins'}</a>` : ''}
+                 <a href="/account" class="btn btn-sm ${user.credits > 0 ? 'btn-ghost' : ''}">My account</a>
+                 <button type="button" class="btn btn-sm btn-ghost hide-sm" data-signout>Sign out</button>`
           : html`<a href="/signin?next=${next}" class="btn btn-sm btn-ghost">Sign in</a>
                  <a href="/signup?next=${next}" class="btn btn-sm">Sign up</a>`
       );

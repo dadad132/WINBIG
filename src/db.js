@@ -109,7 +109,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS packages (
     id          INTEGER PRIMARY KEY,
     price_cents INTEGER NOT NULL,
-    entries     INTEGER NOT NULL,
+    spins       INTEGER NOT NULL,                   -- credits (spins) the customer gets
     badge       TEXT    NOT NULL DEFAULT '',
     active      INTEGER NOT NULL DEFAULT 1
   );
@@ -139,7 +139,9 @@ db.exec(`
     email          TEXT    NOT NULL,
     phone          TEXT    NOT NULL,
     amount_cents   INTEGER NOT NULL,
-    base_entries   INTEGER NOT NULL,
+    kind           TEXT    NOT NULL DEFAULT 'spins',   -- spins | credits (both add credits) | entries (older versions)
+    credits        INTEGER NOT NULL DEFAULT 0,         -- credits (spins) bought
+    base_entries   INTEGER NOT NULL DEFAULT 0,         -- older versions: entries bought directly
     bonus_entries  INTEGER NOT NULL DEFAULT 0,
     spun           INTEGER NOT NULL DEFAULT 0,
     status         TEXT    NOT NULL DEFAULT 'pending', -- pending | paid | review
@@ -151,14 +153,36 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS orders_competition ON orders(competition_id, status);
 
-  CREATE TABLE IF NOT EXISTS entries (
-    id             INTEGER PRIMARY KEY,                 -- ticket number = WB + zero-padded id
-    order_id       INTEGER NOT NULL REFERENCES orders(id),
+  -- Every spin of the wheel. Each spin uses one credit and wins this many entries.
+  CREATE TABLE IF NOT EXISTS spins (
+    id             INTEGER PRIMARY KEY,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
     competition_id INTEGER NOT NULL REFERENCES competitions(id),
-    source         TEXT    NOT NULL DEFAULT 'purchase' -- purchase | bonus
+    entries        INTEGER NOT NULL,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Credit wallet: every credit added (purchase, gift) or used (spin). Balance = SUM(change).
+  CREATE TABLE IF NOT EXISTS credit_ledger (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    change     INTEGER NOT NULL,
+    reason     TEXT    NOT NULL,                       -- purchase | spin | admin | bonus
+    order_id   INTEGER REFERENCES orders(id),
+    spin_id    INTEGER REFERENCES spins(id),
+    note       TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS entries (
+    id             INTEGER PRIMARY KEY,                -- ticket number = WB + zero-padded id
+    competition_id INTEGER NOT NULL REFERENCES competitions(id),
+    user_id        INTEGER REFERENCES users(id),
+    spin_id        INTEGER REFERENCES spins(id),       -- the spin that won this entry
+    order_id       INTEGER REFERENCES orders(id),      -- older versions: entries bought directly
+    source         TEXT    NOT NULL DEFAULT 'spin'     -- spin | purchase | bonus
   );
   CREATE INDEX IF NOT EXISTS entries_competition ON entries(competition_id);
-  CREATE INDEX IF NOT EXISTS entries_order ON entries(order_id);
 
   CREATE TABLE IF NOT EXISTS draws (
     id             INTEGER PRIMARY KEY,
@@ -179,14 +203,61 @@ db.exec(`
   );
 `);
 
-// Upgrade databases created by the first version of WinBig.
+// ---------------------------------------------------------------- upgrades for older databases
+
 const columns = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
 if (!columns('orders').includes('user_id')) db.exec('ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id)');
 if (!columns('competitions').includes('starts_at')) {
   db.exec(`ALTER TABLE competitions ADD COLUMN starts_at TEXT`);
   db.exec(`UPDATE competitions SET starts_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)`);
 }
-db.exec('CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id)');
+
+// Spins & credits version: packages sell spins, orders can buy credits, entries belong to customers.
+if (columns('packages').includes('entries')) db.exec('ALTER TABLE packages RENAME COLUMN entries TO spins');
+if (!columns('orders').includes('kind')) {
+  db.exec(`ALTER TABLE orders ADD COLUMN kind TEXT NOT NULL DEFAULT 'entries'`);
+  db.exec(`ALTER TABLE orders ADD COLUMN credits INTEGER NOT NULL DEFAULT 0`);
+}
+if (!columns('entries').includes('user_id')) {
+  // SQLite can't change a column in place, so the table is rebuilt. Ticket numbers (ids) stay the same.
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE entries_new (
+        id             INTEGER PRIMARY KEY,
+        competition_id INTEGER NOT NULL REFERENCES competitions(id),
+        user_id        INTEGER REFERENCES users(id),
+        spin_id        INTEGER REFERENCES spins(id),
+        order_id       INTEGER REFERENCES orders(id),
+        source         TEXT    NOT NULL DEFAULT 'spin'
+      );
+      INSERT INTO entries_new (id, competition_id, user_id, spin_id, order_id, source)
+        SELECT e.id, e.competition_id, o.user_id, NULL, e.order_id, e.source
+        FROM entries e LEFT JOIN orders o ON o.id = e.order_id;
+      DROP TABLE entries;
+      ALTER TABLE entries_new RENAME TO entries;
+      CREATE INDEX IF NOT EXISTS entries_competition ON entries(competition_id);
+    `);
+    // Paid orders from the old version whose bonus spin was never used get 1 free credit instead.
+    db.exec(`
+      INSERT INTO credit_ledger (user_id, change, reason, order_id, note)
+        SELECT user_id, 1, 'bonus', id, 'Unused bonus spin from an earlier purchase'
+        FROM orders WHERE status = 'paid' AND spun = 0 AND user_id IS NOT NULL;
+      UPDATE orders SET spun = 1 WHERE status = 'paid' AND spun = 0 AND user_id IS NOT NULL;
+    `);
+  })();
+  const problems = db.pragma('foreign_key_check');
+  if (problems.length) throw new Error(`Database upgrade failed: ${JSON.stringify(problems.slice(0, 3))}`);
+  db.pragma('foreign_keys = ON');
+}
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id);
+  CREATE INDEX IF NOT EXISTS entries_user ON entries(user_id, competition_id);
+  CREATE INDEX IF NOT EXISTS entries_order ON entries(order_id);
+  CREATE INDEX IF NOT EXISTS spins_user ON spins(user_id, competition_id);
+  CREATE INDEX IF NOT EXISTS credit_ledger_user ON credit_ledger(user_id);
+`);
 
 function getSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -206,7 +277,7 @@ function deleteSetting(key) {
 // First run: starter packages, wheel and a sample prize so the site isn't empty.
 if (!getSetting('seeded')) {
   db.transaction(() => {
-    const addPackage = db.prepare('INSERT INTO packages (price_cents, entries, badge) VALUES (?, ?, ?)');
+    const addPackage = db.prepare('INSERT INTO packages (price_cents, spins, badge) VALUES (?, ?, ?)');
     addPackage.run(10000, 1, '');
     addPackage.run(40000, 5, 'Popular');
     addPackage.run(80000, 10, 'Best value');

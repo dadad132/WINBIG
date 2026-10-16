@@ -27,8 +27,23 @@
       <div class="customer-id"><span>Your customer ID</span><b id="customer-no"></b></div>
     </div>
 
+    <div class="wallet">
+      <div>
+        <span>Your credits</span>
+        <b id="credit-count">0</b>
+        <small>1 credit = 1 spin of the wheel</small>
+      </div>
+      <div class="wallet-actions">
+        <a href="/spin" class="btn" id="spin-link">Spin the wheel</a>
+        <a href="/#spins" class="btn btn-ghost">Buy spins or credits</a>
+      </div>
+    </div>
+
     <h2>My tickets</h2>
-    <div id="orders" class="orders-list"><p class="empty">Loading your tickets…</p></div>
+    <div id="competitions" class="orders-list"><p class="empty">Loading your tickets…</p></div>
+
+    <h2>My purchases</h2>
+    <div id="purchases" class="purchases"><p class="empty">Loading…</p></div>
 
     <div class="settings-grid" id="details">
       <form id="details-form" novalidate>

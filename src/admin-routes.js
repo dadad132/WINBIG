@@ -5,7 +5,8 @@ const express = require('express');
 const multer = require('multer');
 const { db, getSetting, setSetting, deleteSetting, UPLOAD_DIR } = require('./db');
 const yoco = require('./yoco');
-const { currentCompetition, drawWinner } = require('./orders');
+const { currentCompetition, drawWinner, adjustCredits } = require('./orders');
+const { siteSettings } = require('./site');
 const {
   httpError,
   safeEqual,
@@ -163,7 +164,7 @@ function listOrders({ competition, status, q, limit = 500 } = {}) {
   return db
     .prepare(
       `SELECT o.id, o.user_id, o.created_at, o.paid_at, o.name, o.email, o.phone, o.amount_cents, o.base_entries,
-              o.bonus_entries, o.spun, o.status, o.competition_id, c.title AS competition_title,
+              o.bonus_entries, o.spun, o.status, o.kind, o.credits, o.competition_id, c.title AS competition_title,
               (SELECT GROUP_CONCAT(e.id) FROM entries e WHERE e.order_id = o.id) AS entry_ids
        FROM orders o JOIN competitions c ON c.id = o.competition_id
        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -199,7 +200,9 @@ router.get('/stats', (req, res) => {
          COUNT(CASE WHEN status = 'paid' THEN 1 END) AS paid_orders,
          COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending_orders,
          COUNT(CASE WHEN status = 'review' THEN 1 END) AS review_orders,
-         (SELECT COUNT(*) FROM users) AS customers
+         (SELECT COUNT(*) FROM users) AS customers,
+         (SELECT COALESCE(SUM(change), 0) FROM credit_ledger) AS credits_unused,
+         (SELECT COUNT(*) FROM spins) AS spins
        FROM orders`
     )
     .get();
@@ -318,20 +321,21 @@ router.delete('/competitions/:id', (req, res) => {
 
 // ---------------------------------------------------------------- winner draw
 
-// One participant per customer account (or per email for orders made without an account).
-const PARTICIPANT_KEY = `COALESCE('u' || o.user_id, 'e' || LOWER(o.email))`;
+// One participant per customer account (or per email for very old orders made without an account).
+// Queries using this join entries e LEFT JOIN orders o ON o.id = e.order_id.
+const PARTICIPANT_KEY = `COALESCE('u' || COALESCE(e.user_id, o.user_id), 'e' || LOWER(o.email))`;
 
 // Everyone in the draw with their number of entries. More entries = a bigger slice = a bigger chance.
 router.get('/competitions/:id/participants', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT ${PARTICIPANT_KEY} AS key, MAX(o.user_id) AS user_id,
+      `SELECT ${PARTICIPANT_KEY} AS key, MAX(COALESCE(e.user_id, o.user_id)) AS user_id,
               MAX(COALESCE(u.first_name || ' ' || u.last_name, o.name)) AS name,
               MAX(COALESCE(u.email, o.email)) AS email, MAX(COALESCE(u.phone, o.phone)) AS phone,
               COUNT(e.id) AS entries
        FROM entries e
-       JOIN orders o ON o.id = e.order_id
-       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN orders o ON o.id = e.order_id
+       LEFT JOIN users u ON u.id = COALESCE(e.user_id, o.user_id)
        WHERE e.competition_id = ?
        GROUP BY ${PARTICIPANT_KEY}
        ORDER BY entries DESC, name`
@@ -342,18 +346,18 @@ router.get('/competitions/:id/participants', (req, res) => {
 });
 
 const drawDetails = db.prepare(`
-  SELECT d.id, d.competition_id, d.entry_id, d.total_entries, d.drawn_at,
-         o.id AS order_id, o.user_id, o.name, ${PARTICIPANT_KEY} AS participant_key,
+  SELECT d.id, d.competition_id, d.entry_id, d.total_entries, d.drawn_at, e.order_id, e.spin_id,
+         COALESCE(e.user_id, o.user_id) AS user_id, ${PARTICIPANT_KEY} AS participant_key,
          COALESCE(u.first_name, o.name) AS first_name, COALESCE(u.last_name, '') AS last_name,
          COALESCE(u.email, o.email) AS email, COALESCE(u.phone, o.phone) AS phone
   FROM draws d
   JOIN entries e ON e.id = d.entry_id
-  JOIN orders o ON o.id = e.order_id
-  LEFT JOIN users u ON u.id = o.user_id
+  LEFT JOIN orders o ON o.id = e.order_id
+  LEFT JOIN users u ON u.id = COALESCE(e.user_id, o.user_id)
   WHERE d.id = ?
 `);
 const participantEntries = db.prepare(`
-  SELECT COUNT(*) AS n FROM entries e JOIN orders o ON o.id = e.order_id
+  SELECT COUNT(*) AS n FROM entries e LEFT JOIN orders o ON o.id = e.order_id
   WHERE e.competition_id = ? AND ${PARTICIPANT_KEY} = ?
 `);
 const withTicket = (d) => ({
@@ -373,18 +377,18 @@ router.post('/competitions/:id/draw', (req, res) => {
   res.json(withTicket(drawDetails.get(drawId)));
 });
 
-// ---------------------------------------------------------------- ticket packages
+// ---------------------------------------------------------------- spin packages
 
 function packageFields(body = {}) {
   const price_cents = randsToCents(body.price);
   if (!(price_cents >= 200 && price_cents <= 10000000)) throw httpError(400, 'Price must be between R2 and R100 000.');
-  const entries = Number(body.entries);
-  if (!Number.isInteger(entries) || entries < 1 || entries > 10000) {
-    throw httpError(400, 'Entries must be a whole number from 1 to 10 000.');
+  const spins = Number(body.spins);
+  if (!Number.isInteger(spins) || spins < 1 || spins > 10000) {
+    throw httpError(400, 'Spins must be a whole number from 1 to 10 000.');
   }
   return {
     price_cents,
-    entries,
+    spins,
     badge: String(body.badge || '').trim().slice(0, 30),
     active: body.active === false ? 0 : 1,
   };
@@ -397,7 +401,7 @@ router.get('/packages', (req, res) => {
 router.post('/packages', (req, res) => {
   const fields = packageFields(req.body);
   const id = db
-    .prepare('INSERT INTO packages (price_cents, entries, badge, active) VALUES (@price_cents, @entries, @badge, @active)')
+    .prepare('INSERT INTO packages (price_cents, spins, badge, active) VALUES (@price_cents, @spins, @badge, @active)')
     .run(fields).lastInsertRowid;
   res.json({ id });
 });
@@ -405,7 +409,7 @@ router.post('/packages', (req, res) => {
 router.put('/packages/:id', (req, res) => {
   const fields = packageFields(req.body);
   const result = db
-    .prepare('UPDATE packages SET price_cents = @price_cents, entries = @entries, badge = @badge, active = @active WHERE id = @id')
+    .prepare('UPDATE packages SET price_cents = @price_cents, spins = @spins, badge = @badge, active = @active WHERE id = @id')
     .run({ ...fields, id: Number(req.params.id) });
   if (!result.changes) throw httpError(404, 'Package not found.');
   res.json({ ok: true });
@@ -416,7 +420,7 @@ router.delete('/packages/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------------------------------------------------------------- bonus spin wheel
+// ---------------------------------------------------------------- spin wheel
 
 router.get('/wheel', (req, res) => res.json(getSetting('wheel', [])));
 
@@ -428,7 +432,7 @@ router.put('/wheel', (req, res) => {
   const clean = segments.map((s) => ({ value: Number(s.value), weight: Number(s.weight) }));
   for (const s of clean) {
     if (!Number.isInteger(s.value) || s.value < 1 || s.value > 100) {
-      throw httpError(400, 'Bonus entries must be whole numbers from 1 to 100.');
+      throw httpError(400, 'Entries on the wheel must be whole numbers from 1 to 100.');
     }
     if (!Number.isInteger(s.weight) || s.weight < 0 || s.weight > 1000) {
       throw httpError(400, 'Chance weights must be whole numbers from 0 to 1000.');
@@ -448,10 +452,10 @@ router.get('/orders.csv', (req, res) => {
   sendCsv(
     res,
     'winbig-orders',
-    ['Order', 'Created (UTC)', 'Paid (UTC)', 'Status', 'Prize', 'Customer ID', 'Name', 'Email', 'Phone',
-      'Amount (R)', 'Entries bought', 'Bonus entries', 'Total entries', 'Tickets'],
-    rows.map((o) => [o.id, o.created_at, o.paid_at, o.status, o.competition_title, o.customer_no, o.name, o.email, o.phone,
-      (o.amount_cents / 100).toFixed(2), o.base_entries, o.bonus_entries, o.tickets.length, o.tickets.join(' ')])
+    ['Order', 'Created (UTC)', 'Paid (UTC)', 'Status', 'Bought', 'Credits', 'Customer ID', 'Name', 'Email', 'Phone',
+      'Amount (R)', 'Entries (older orders)', 'Tickets (older orders)'],
+    rows.map((o) => [o.id, o.created_at, o.paid_at, o.status, o.kind, o.credits, o.customer_no, o.name, o.email, o.phone,
+      (o.amount_cents / 100).toFixed(2), o.base_entries + o.bonus_entries, o.tickets.join(' ')])
   );
 });
 
@@ -460,13 +464,14 @@ router.get('/orders.csv', (req, res) => {
 function listCustomers(q) {
   const statement = db.prepare(
     `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.created_at,
-            COUNT(CASE WHEN o.status = 'paid' THEN 1 END) AS paid_orders,
-            COALESCE(SUM(CASE WHEN o.status = 'paid' THEN o.amount_cents END), 0) AS spent_cents,
-            COALESCE(SUM(CASE WHEN o.status = 'paid' THEN o.base_entries + o.bonus_entries END), 0) AS entries
-     FROM users u LEFT JOIN orders o ON o.user_id = u.id
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid') AS paid_orders,
+            (SELECT COALESCE(SUM(amount_cents), 0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid') AS spent_cents,
+            (SELECT COUNT(*) FROM entries e WHERE e.user_id = u.id) AS entries,
+            (SELECT COALESCE(SUM(change), 0) FROM credit_ledger l WHERE l.user_id = u.id) AS credits
+     FROM users u
      ${q ? `WHERE u.first_name LIKE @q OR u.last_name LIKE @q OR (u.first_name || ' ' || u.last_name) LIKE @q
                OR u.email LIKE @q OR u.phone LIKE @q OR u.id = @customer` : ''}
-     GROUP BY u.id ORDER BY u.id DESC`
+     ORDER BY u.id DESC`
   );
   const rows = q ? statement.all({ q: `%${q}%`, customer: parseCustomerNo(q) }) : statement.all();
   return rows.map((c) => ({ ...c, customer_no: customerNo(c.id) }));
@@ -480,10 +485,22 @@ router.get('/customers.csv', (req, res) => {
   sendCsv(
     res,
     'winbig-customers',
-    ['Customer ID', 'First name', 'Surname', 'Email', 'Phone', 'Signed up (UTC)', 'Paid orders', 'Entries', 'Spent (R)'],
+    ['Customer ID', 'First name', 'Surname', 'Email', 'Phone', 'Signed up (UTC)', 'Paid orders', 'Credits', 'Entries', 'Spent (R)'],
     listCustomers(String(req.query.q || '').trim()).map((c) => [c.customer_no, c.first_name, c.last_name, c.email, c.phone,
-      c.created_at, c.paid_orders, c.entries, (c.spent_cents / 100).toFixed(2)])
+      c.created_at, c.paid_orders, c.credits, c.entries, (c.spent_cents / 100).toFixed(2)])
   );
+});
+
+// Give or take away credits by hand, e.g. for a refund, a competition or a mistake.
+router.post('/customers/:id/credits', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw httpError(404, 'Customer not found.');
+  const change = Number(req.body?.change);
+  if (!Number.isInteger(change) || change === 0 || Math.abs(change) > 1000) {
+    throw httpError(400, 'Enter a whole number of credits between -1000 and 1000 (not 0).');
+  }
+  const note = String(req.body?.note || '').trim().slice(0, 200);
+  res.json({ credits: adjustCredits(id, change, note) });
 });
 
 router.put('/customers/:id/password', async (req, res) => {
@@ -493,6 +510,47 @@ router.put('/customers/:id/password', async (req, res) => {
   if (!result.changes) throw httpError(404, 'Customer not found.');
   db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- website settings
+
+router.get('/site', (req, res) => res.json(siteSettings()));
+
+// Saves whichever sections are sent: about, contact, show_counter and/or credit_price.
+router.put('/site', (req, res) => {
+  const body = req.body || {};
+  const text = (value, label, max = 2000) => {
+    const v = String(value ?? '').trim();
+    if (!v) throw httpError(400, `Please write something for "${label}".`);
+    if (v.length > max) throw httpError(400, `"${label}" is too long (max ${max} characters).`);
+    return v;
+  };
+  const updates = {};
+  if (body.about) {
+    updates.about = {
+      who: text(body.about.who, 'Who we are'),
+      what: text(body.about.what, 'What we do'),
+      why: text(body.about.why, 'Why we do it'),
+    };
+  }
+  if (body.contact) {
+    const email = String(body.contact.email || '').trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw httpError(400, 'The contact email address is not valid.');
+    const phoneOf = (v) => String(v || '').replace(/[^\d+]/g, '');
+    updates.contact = { email, phone: phoneOf(body.contact.phone), whatsapp: phoneOf(body.contact.whatsapp) };
+    for (const p of [updates.contact.phone, updates.contact.whatsapp]) {
+      if (p && !/^\+?\d{9,15}$/.test(p)) throw httpError(400, 'Phone numbers must have 9 to 15 digits.');
+    }
+  }
+  if ('show_counter' in body) updates.show_counter = body.show_counter !== false;
+  if (body.credit_price != null) {
+    updates.credit_price_cents = randsToCents(body.credit_price);
+    if (!(updates.credit_price_cents >= 200 && updates.credit_price_cents <= 10000000)) {
+      throw httpError(400, 'The price of one credit must be between R2 and R100 000.');
+    }
+  }
+  for (const [key, value] of Object.entries(updates)) setSetting(key, value);
+  res.json(siteSettings());
 });
 
 // ---------------------------------------------------------------- payments / Yoco
